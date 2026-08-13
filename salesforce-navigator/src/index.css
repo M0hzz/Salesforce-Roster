@@ -1,0 +1,78 @@
+@import 'tailwindcss';
+@import "tw-animate-css";
+
+:root {
+  --background: #fdf7ff;
+  --foreground: #1a0b2e;
+  --card: #ffffff;
+  --card-foreground: #1a0b2e;
+  --popover: #ffffff;
+  --popover-foreground: #1a0b2e;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #ffe4f1;
+  --secondary-foreground: #7c3aed;
+  --accent: #f97316;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --muted: #f3e8ff;
+  --muted-foreground: #6b21a8;
+  --border: #e9d5ff;
+  --input: #e9d5ff;
+  --ring: #7c3aed;
+  --radius: 0.75rem;
+}
+
+/* Tailwind v4 reads its palette from @theme, so the tokens above have to be
+   registered here before `bg-card`, `border-border`, etc. resolve. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
