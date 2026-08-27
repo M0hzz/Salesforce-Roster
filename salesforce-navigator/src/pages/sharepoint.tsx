@@ -1,54 +1,73 @@
-const ROSTER_COLUMNS: [string, string][] = [
-  ["Title Code", "Single line of text — unique, used as the key"],
-  ["Full Name", "Single line of text"],
-  ["Phone", "Single line of text"],
-  ["Email", "Single line of text"],
-  ["Reports To", "Lookup → Roster (Title Code)"],
-  ["Department", "Choice"],
-  ["Region", "Choice, multi-select"],
-  ["Level", "Choice — Director, Manager, Rep"],
-];
+import { Link } from "react-router-dom";
+import { ACTIVITY_DEF, ROSTER_DEF, type FieldDef, type ListDef } from "@/lib/sharepoint/mapping";
 
-const ACTIVITY_COLUMNS: [string, string][] = [
-  ["Status", "Choice — Scheduled, Completed, Refused"],
-  ["Title", "Single line of text"],
-  ["RetailerId", "Single line of text, indexed"],
-  ["Application Date", "Date only"],
-  ["Scheduled Date", "Date only, indexed"],
-  ["Address", "Multiple lines, plain text"],
-  ["Route", "Single line of text, indexed — matches Roster.Title Code"],
-  ["Task", "Choice"],
-  ["Model", "Choice"],
-  ["Brand", "Choice"],
-  ["Area", "Single line of text"],
-  ["Phone", "Single line of text"],
-  ["Notes", "Multiple lines, plain text"],
-  ["More Notes", "Multiple lines, plain text"],
-];
+const TYPE_LABEL: Record<FieldDef["type"], string> = {
+  text: "Single line of text",
+  note: "Multiple lines, plain text",
+  date: "Date only",
+};
+
+function typeOf(field: FieldDef): string {
+  const flags = [
+    field.required && "required",
+    field.indexed && "indexed",
+    field.unique && "unique",
+  ].filter(Boolean);
+  return TYPE_LABEL[field.type] + (flags.length ? ` — ${flags.join(", ")}` : "");
+}
 
 export default function SharePointPage() {
   return (
     <div className="space-y-8 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-bold">Rebuilding this in SharePoint</h1>
+        <h1 className="text-2xl font-bold">SharePoint setup</h1>
         <p className="text-muted-foreground mt-1">
-          Two lists, a lookup between them, and four views cover everything this app does.
+          This app can store its data directly in two SharePoint lists — switch backends on the{" "}
+          <Link to="/storage" className="underline">
+            Storage
+          </Link>{" "}
+          page. The tables below come from{" "}
+          <code className="text-xs">src/lib/sharepoint/lists.schema.json</code>, the same file the
+          app and the provisioning script use.
         </p>
       </div>
 
+      <section className="space-y-2">
+        <h2 className="text-lg font-bold">Connecting the app</h2>
+        <ol className="list-decimal pl-5 space-y-1 text-sm">
+          <li>
+            In Entra ID, register a single-page application. Add your app's URL (e.g.{" "}
+            <code className="text-xs">http://localhost:5173</code>) as an SPA redirect URI and grant
+            it the delegated Microsoft Graph permission{" "}
+            <code className="text-xs">Sites.ReadWrite.All</code>.
+          </li>
+          <li>
+            Copy <code className="text-xs">.env.example</code> to{" "}
+            <code className="text-xs">.env.local</code> and fill in the client id, tenant id, and the
+            SharePoint site's hostname and path.
+          </li>
+          <li>
+            Run <code className="text-xs">npm run provision</code> once — it signs you in with a
+            device code and creates both lists with the columns below.
+          </li>
+          <li>
+            Start the app, open <Link to="/storage" className="underline">Storage</Link>, pick
+            SharePoint, and sign in.
+          </li>
+        </ol>
+      </section>
+
       <ListSpec
-        name="Roster"
+        def={ROSTER_DEF}
         note="One item per person. Title Code is the join key, so keep it unique and stable."
-        columns={ROSTER_COLUMNS}
       />
       <ListSpec
-        name="Activity"
+        def={ACTIVITY_DEF}
         note="One item per visit. Route holds the rep's title code; bare three-digit values get an S prefix on import."
-        columns={ACTIVITY_COLUMNS}
       />
 
       <section className="space-y-2">
-        <h2 className="text-lg font-bold">Views</h2>
+        <h2 className="text-lg font-bold">Views worth adding in SharePoint</h2>
         <ul className="list-disc pl-5 space-y-1 text-sm">
           <li>
             <b>This week</b> — Activity grouped by Scheduled Date, filtered to the next seven days.
@@ -82,32 +101,29 @@ export default function SharePointPage() {
   );
 }
 
-function ListSpec({
-  name,
-  note,
-  columns,
-}: {
-  name: string;
-  note: string;
-  columns: [string, string][];
-}) {
+function ListSpec({ def, note }: { def: ListDef; note: string }) {
   return (
     <section className="space-y-2">
-      <h2 className="text-lg font-bold">{name} list</h2>
+      <h2 className="text-lg font-bold">{def.listName} list</h2>
       <p className="text-sm text-muted-foreground">{note}</p>
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted text-left">
             <tr>
               <th className="p-2 font-semibold">Column</th>
+              <th className="p-2 font-semibold">Internal name</th>
               <th className="p-2 font-semibold">Type</th>
             </tr>
           </thead>
           <tbody>
-            {columns.map(([col, type]) => (
-              <tr key={col} className="border-t">
-                <td className="p-2 font-mono text-xs">{col}</td>
-                <td className="p-2 text-muted-foreground">{type}</td>
+            {def.fields.map((field) => (
+              <tr key={field.app} className="border-t align-top">
+                <td className="p-2 font-mono text-xs">{field.app}</td>
+                <td className="p-2 font-mono text-xs text-muted-foreground">{field.sp}</td>
+                <td className="p-2 text-muted-foreground">
+                  {typeOf(field)}
+                  {field.note && <span className="block text-xs mt-0.5">{field.note}</span>}
+                </td>
               </tr>
             ))}
           </tbody>
