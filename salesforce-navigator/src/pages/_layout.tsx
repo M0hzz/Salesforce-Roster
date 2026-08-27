@@ -7,14 +7,17 @@ import {
   Sparkles,
   Code2,
   LayoutList,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ConnectionBanner } from "@/components/system/ConnectionBanner";
 
 const NAV = [
   { to: "/", label: "Search", icon: Search, end: true },
   { to: "/upload", label: "Upload", icon: Upload },
   { to: "/org", label: "Org Chart", icon: GitBranch },
   { to: "/activity", label: "Activity", icon: BarChart3 },
+  { to: "/storage", label: "Storage", icon: Database },
   { to: "/sharepoint", label: "SharePoint", icon: LayoutList },
   { to: "/source", label: "Source", icon: Code2 },
 ];
@@ -47,6 +50,7 @@ export default function Layout() {
           </nav>
         </div>
       </header>
+      <ConnectionBanner />
       <main className="flex-1 mx-auto max-w-7xl w-full px-4 py-8">
         <Outlet />
       </main>

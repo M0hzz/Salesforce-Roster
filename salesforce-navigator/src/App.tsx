@@ -10,6 +10,7 @@ import OrgChartPage from "./pages/org";
 import ActivityPage from "./pages/activity";
 import PersonDetailPage from "./pages/person";
 import SharePointPage from "./pages/sharepoint";
+import StoragePage from "./pages/storage";
 import SourcePage from "./pages/source";
 import NotFoundPage from "./pages/not-found";
 
@@ -26,6 +27,7 @@ function App() {
                 <Route path="org" element={<OrgChartPage />} />
                 <Route path="activity" element={<ActivityPage />} />
                 <Route path="person/:id" element={<PersonDetailPage />} />
+                <Route path="storage" element={<StoragePage />} />
                 <Route path="sharepoint" element={<SharePointPage />} />
                 <Route path="source" element={<SourcePage />} />
                 <Route path="*" element={<NotFoundPage />} />

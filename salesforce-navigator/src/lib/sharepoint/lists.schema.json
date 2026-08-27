@@ -1,0 +1,37 @@
+{
+  "$comment": "Single source of truth for the SharePoint lists backing this app. The runtime field mapping (mapping.ts), the provisioning script (scripts/provision-sharepoint.mjs), and the /sharepoint reference page all read this file.",
+  "roster": {
+    "listName": "Roster",
+    "description": "One item per person. Title holds the Title Code — the join key — so it is renamed, indexed, and unique.",
+    "fields": [
+      { "app": "Title Code", "sp": "Title", "type": "text", "required": true, "indexed": true, "unique": true, "note": "Built-in Title column, display name changed to 'Title Code'." },
+      { "app": "Full Name", "sp": "FullName", "type": "text", "required": true },
+      { "app": "Phone", "sp": "Phone", "type": "text" },
+      { "app": "Email", "sp": "Email", "type": "text" },
+      { "app": "Reports To", "sp": "ReportsTo", "type": "text", "note": "Holds the manager's title code as plain text. Kept as text (not a lookup) so CSV imports and writes stay simple; the app resolves the reporting chain itself." },
+      { "app": "Department", "sp": "Department", "type": "text" },
+      { "app": "Region", "sp": "Region", "type": "text" },
+      { "app": "Level", "sp": "Level", "type": "text" }
+    ]
+  },
+  "activity": {
+    "listName": "Activity",
+    "description": "One item per visit. Route holds the rep's title code; bare three-digit values get an S prefix on import.",
+    "fields": [
+      { "app": "Title", "sp": "Title", "type": "text", "note": "Built-in Title column." },
+      { "app": "Status", "sp": "Status", "type": "text" },
+      { "app": "RetailerId", "sp": "RetailerId", "type": "text", "indexed": true },
+      { "app": "Application Date", "sp": "ApplicationDate", "type": "date" },
+      { "app": "Scheduled Date", "sp": "ScheduledDate", "type": "date", "indexed": true },
+      { "app": "Address", "sp": "Address", "type": "note" },
+      { "app": "Route", "sp": "Route", "type": "text", "indexed": true, "note": "Matches Roster Title Code." },
+      { "app": "Task", "sp": "TaskName", "type": "text", "note": "Internal name TaskName to stay clear of SharePoint's reserved Task names." },
+      { "app": "Model", "sp": "Model", "type": "text" },
+      { "app": "Brand", "sp": "Brand", "type": "text" },
+      { "app": "Area", "sp": "Area", "type": "text" },
+      { "app": "Phone", "sp": "Phone", "type": "text" },
+      { "app": "Notes", "sp": "Notes", "type": "note" },
+      { "app": "More Notes", "sp": "MoreNotes", "type": "note" }
+    ]
+  }
+}

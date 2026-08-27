@@ -1,92 +1,261 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  ReactNode,
+} from "react";
 import { SAMPLE_ACTIVITY, SAMPLE_ROSTER } from "./sample-data";
+import type { ActivityRow, NewActivityRow, Person } from "./types";
+import { readBackendChoice, saveBackendChoice, type BackendKind, type DataStore } from "./storage/store";
+import { LocalStore } from "./storage/local-store";
+import { SharePointStore } from "./storage/sharepoint-store";
+import { isSharePointConfigured } from "./sharepoint/config";
+import * as spAuth from "./sharepoint/auth";
 
-export type Person = {
-  "Title Code": string;
-  "Full Name": string;
-  Phone?: string;
-  Email?: string;
-  "Reports To"?: string;
-  Department?: string;
-  Region?: string;
-  Level?: string;
-};
+export type { ActivityRow, Person } from "./types";
 
-export type ActivityRow = {
-  id: string;
-  Status?: string;
-  Title?: string;
-  RetailerId?: string;
-  "Application Date"?: string;
-  "Scheduled Date"?: string;
-  Address?: string;
-  Route?: string;
-  Task?: string;
-  Model?: string;
-  Brand?: string;
-  Area?: string;
-  Phone?: string;
-  Notes?: string;
-  "More Notes"?: string;
-};
+export type ConnectionStatus =
+  | "ready" // local backend — always available
+  | "unconfigured" // sharepoint chosen but env vars missing
+  | "signed-out"
+  | "connecting"
+  | "connected"
+  | "error";
 
 type Ctx = {
   roster: Person[];
   activity: ActivityRow[];
-  setRoster: (rows: Person[]) => void;
-  setActivity: (rows: ActivityRow[]) => void;
-  appendActivity: (rows: ActivityRow[]) => void;
+  backend: BackendKind;
+  setBackend: (kind: BackendKind) => void;
+  status: ConnectionStatus;
+  lastError: string | null;
+  loading: boolean;
+  accountName: string | null;
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
+  setRoster: (rows: Person[]) => Promise<void>;
+  appendActivity: (rows: NewActivityRow[]) => Promise<number>;
   updateActivity: (id: string, patch: Partial<ActivityRow>) => void;
-  loadSample: () => void;
-  clearAll: () => void;
+  loadSample: () => Promise<void>;
+  clearAll: () => Promise<void>;
 };
 
 const DataCtx = createContext<Ctx | null>(null);
 
-function readStore<T>(key: string): T[] {
-  try {
-    const raw = localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
-    return [];
-  }
-}
+const NOTE_FLUSH_MS = 700;
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const [roster, setRosterState] = useState<Person[]>(() => readStore<Person>("roster"));
-  const [activity, setActivityState] = useState<ActivityRow[]>(() =>
-    readStore<ActivityRow>("activity")
+  const [backend, setBackendState] = useState<BackendKind>(() => readBackendChoice());
+  const [roster, setRosterState] = useState<Person[]>([]);
+  const [activity, setActivityState] = useState<ActivityRow[]>([]);
+  const [status, setStatus] = useState<ConnectionStatus>("ready");
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [accountName, setAccountName] = useState<string | null>(null);
+
+  const store: DataStore = useMemo(
+    () => (backend === "sharepoint" ? new SharePointStore() : new LocalStore()),
+    [backend]
   );
 
-  useEffect(() => {
-    localStorage.setItem("roster", JSON.stringify(roster));
-  }, [roster]);
-  useEffect(() => {
-    localStorage.setItem("activity", JSON.stringify(activity));
-  }, [activity]);
+  // Debounced per-item patches so inline note editing doesn't become a
+  // network write per keystroke against SharePoint.
+  const pendingPatches = useRef(new Map<string, Partial<ActivityRow>>());
+  const patchTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
-  const setRoster = (rows: Person[]) => setRosterState(rows);
-  const setActivity = (rows: ActivityRow[]) => setActivityState(rows);
-  const appendActivity = (rows: ActivityRow[]) => setActivityState((prev) => [...prev, ...rows]);
-  const updateActivity = (id: string, patch: Partial<ActivityRow>) =>
-    setActivityState((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  const clearAll = () => {
+  const fail = useCallback((e: unknown) => {
+    const message = e instanceof Error ? e.message : String(e);
+    setLastError(message);
+    if (backend === "sharepoint") setStatus("error");
+  }, [backend]);
+
+  const flushPatch = useCallback(
+    (id: string) => {
+      const timer = patchTimers.current.get(id);
+      if (timer) {
+        clearTimeout(timer);
+        patchTimers.current.delete(id);
+      }
+      const patch = pendingPatches.current.get(id);
+      if (!patch) return;
+      pendingPatches.current.delete(id);
+      store.updateActivity(id, patch).catch(fail);
+    },
+    [store, fail]
+  );
+
+  const flushAllPatches = useCallback(() => {
+    for (const id of Array.from(pendingPatches.current.keys())) flushPatch(id);
+  }, [flushPatch]);
+
+  useEffect(() => {
+    window.addEventListener("pagehide", flushAllPatches);
+    return () => window.removeEventListener("pagehide", flushAllPatches);
+  }, [flushAllPatches]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLastError(null);
+    try {
+      if (store.kind === "sharepoint") {
+        if (!isSharePointConfigured()) {
+          setStatus("unconfigured");
+          setRosterState([]);
+          setActivityState([]);
+          return;
+        }
+        setStatus("connecting");
+        const account = await spAuth.restoreSession();
+        setAccountName(account?.name ?? account?.username ?? null);
+        if (!account) {
+          setStatus("signed-out");
+          setRosterState([]);
+          setActivityState([]);
+          return;
+        }
+        const data = await store.loadAll();
+        setRosterState(data.roster);
+        setActivityState(data.activity);
+        setStatus("connected");
+      } else {
+        const data = await store.loadAll();
+        setRosterState(data.roster);
+        setActivityState(data.activity);
+        setStatus("ready");
+      }
+    } catch (e) {
+      fail(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [store, fail]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const setBackend = useCallback(
+    (kind: BackendKind) => {
+      flushAllPatches();
+      saveBackendChoice(kind);
+      setBackendState(kind);
+    },
+    [flushAllPatches]
+  );
+
+  const signIn = useCallback(async () => {
+    try {
+      setLastError(null);
+      setStatus("connecting");
+      const account = await spAuth.signIn();
+      setAccountName(account.name ?? account.username ?? null);
+      const data = await store.loadAll();
+      setRosterState(data.roster);
+      setActivityState(data.activity);
+      setStatus("connected");
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+  }, [store, fail]);
+
+  const signOut = useCallback(async () => {
+    flushAllPatches();
+    try {
+      await spAuth.signOut();
+    } catch {
+      /* popup closed — treat as signed out locally */
+    }
+    setAccountName(null);
     setRosterState([]);
     setActivityState([]);
-  };
-  const loadSample = () => {
-    setRosterState(SAMPLE_ROSTER);
-    setActivityState(SAMPLE_ACTIVITY.map((r, i) => ({ ...r, id: `sample-${i}` })));
-  };
+    setStatus("signed-out");
+  }, [flushAllPatches]);
+
+  const setRoster = useCallback(
+    async (rows: Person[]) => {
+      setRosterState(rows); // optimistic
+      try {
+        await store.replaceRoster(rows);
+      } catch (e) {
+        fail(e);
+        throw e;
+      }
+    },
+    [store, fail]
+  );
+
+  const appendActivity = useCallback(
+    async (rows: NewActivityRow[]) => {
+      try {
+        const created = await store.addActivity(rows);
+        setActivityState((prev) => [...prev, ...created]);
+        return created.length;
+      } catch (e) {
+        fail(e);
+        throw e;
+      }
+    },
+    [store, fail]
+  );
+
+  const updateActivity = useCallback(
+    (id: string, patch: Partial<ActivityRow>) => {
+      setActivityState((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+      pendingPatches.current.set(id, { ...pendingPatches.current.get(id), ...patch });
+      const existing = patchTimers.current.get(id);
+      if (existing) clearTimeout(existing);
+      patchTimers.current.set(
+        id,
+        setTimeout(() => flushPatch(id), NOTE_FLUSH_MS)
+      );
+    },
+    [flushPatch]
+  );
+
+  const clearAll = useCallback(async () => {
+    setRosterState([]);
+    setActivityState([]);
+    try {
+      await store.clearAll();
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+  }, [store, fail]);
+
+  const loadSample = useCallback(async () => {
+    try {
+      const roster = await store.replaceRoster(SAMPLE_ROSTER);
+      const activity = await store.replaceActivity(SAMPLE_ACTIVITY);
+      setRosterState(roster);
+      setActivityState(activity);
+    } catch (e) {
+      fail(e);
+      throw e;
+    }
+  }, [store, fail]);
 
   return (
     <DataCtx.Provider
       value={{
         roster,
         activity,
+        backend,
+        setBackend,
+        status,
+        lastError,
+        loading,
+        accountName,
+        signIn,
+        signOut,
+        refresh: load,
         setRoster,
-        setActivity,
         appendActivity,
         updateActivity,
         loadSample,

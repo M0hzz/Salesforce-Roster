@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileUp } from "lucide-react";
-import { useData, type ActivityRow, type Person } from "@/lib/data-context";
+import { AlertTriangle, CheckCircle2, FileUp, Loader2 } from "lucide-react";
+import { useData } from "@/lib/data-context";
+import type { NewActivityRow, Person } from "@/lib/types";
 import { parseDelimited, rowsToObjects } from "@/lib/csv";
 
 const ROSTER_REQUIRED = ["Title Code", "Full Name"];
@@ -13,24 +14,19 @@ function missingColumns(rows: string[][], required: string[]): string[] {
   return required.filter((r) => !header.includes(r));
 }
 
-function newId(i: number) {
-  const base =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `${base}-${i}`;
-}
-
 export default function UploadPage() {
-  const { setRoster, appendActivity, loadSample, clearAll, roster, activity } = useData();
+  const { setRoster, appendActivity, loadSample, clearAll, roster, activity, backend } = useData();
   const [rosterPaste, setRosterPaste] = useState("");
   const [activityPaste, setActivityPaste] = useState("");
   const [rosterResult, setRosterResult] = useState<Result>(null);
   const [activityResult, setActivityResult] = useState<Result>(null);
+  const [busy, setBusy] = useState(false);
   const rosterFile = useRef<HTMLInputElement>(null);
   const activityFile = useRef<HTMLInputElement>(null);
 
-  const parseRoster = (text: string) => {
+  const sharePoint = backend === "sharepoint";
+
+  const parseRoster = async (text: string) => {
     const rows = parseDelimited(text);
     if (rows.length < 2) {
       setRosterResult({ ok: false, message: "Need a header row and at least one person." });
@@ -42,11 +38,18 @@ export default function UploadPage() {
       return;
     }
     const people = rowsToObjects<Person>(rows).filter((p) => p["Title Code"]);
-    setRoster(people);
-    setRosterResult({ ok: true, message: `Replaced the roster with ${people.length} people.` });
+    setBusy(true);
+    try {
+      await setRoster(people);
+      setRosterResult({ ok: true, message: `Replaced the roster with ${people.length} people.` });
+    } catch (e) {
+      setRosterResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const parseActivity = (text: string) => {
+  const parseActivity = async (text: string) => {
     const rows = parseDelimited(text);
     if (rows.length < 2) {
       setActivityResult({ ok: false, message: "Need a header row and at least one row of work." });
@@ -57,12 +60,16 @@ export default function UploadPage() {
       setActivityResult({ ok: false, message: `Missing column: ${missing.join(", ")}` });
       return;
     }
-    const rowsOut = rowsToObjects<Omit<ActivityRow, "id">>(rows).map((r, i) => ({
-      ...r,
-      id: newId(i),
-    }));
-    appendActivity(rowsOut);
-    setActivityResult({ ok: true, message: `Added ${rowsOut.length} activity rows.` });
+    const rowsOut = rowsToObjects<NewActivityRow>(rows);
+    setBusy(true);
+    try {
+      const added = await appendActivity(rowsOut);
+      setActivityResult({ ok: true, message: `Added ${added} activity rows.` });
+    } catch (e) {
+      setActivityResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const readFile = (file: File | undefined, onText: (t: string) => void) => {
@@ -78,7 +85,8 @@ export default function UploadPage() {
         <div>
           <h2 className="font-bold">Team roster</h2>
           <p className="text-sm text-muted-foreground">
-            Uploading replaces everyone currently in the roster. Needs{" "}
+            Uploading replaces everyone currently in the roster
+            {sharePoint && " — in SharePoint, for the whole team"}. Needs{" "}
             <code className="text-xs">Title Code</code> and <code className="text-xs">Full Name</code>.
           </p>
         </div>
@@ -91,14 +99,16 @@ export default function UploadPage() {
         />
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => parseRoster(rosterPaste)}
-            className="px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm"
+            disabled={busy}
+            onClick={() => void parseRoster(rosterPaste)}
+            className="px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
           >
-            Replace roster
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />} Replace roster
           </button>
           <button
+            disabled={busy}
             onClick={() => rosterFile.current?.click()}
-            className="px-3 py-1.5 rounded border text-sm inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded border text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             <FileUp className="h-4 w-4" /> Choose CSV file
           </button>
@@ -110,7 +120,7 @@ export default function UploadPage() {
             onChange={(e) =>
               readFile(e.target.files?.[0], (t) => {
                 setRosterPaste(t);
-                parseRoster(t);
+                void parseRoster(t);
               })
             }
           />
@@ -136,14 +146,16 @@ export default function UploadPage() {
         />
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => parseActivity(activityPaste)}
-            className="px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm"
+            disabled={busy}
+            onClick={() => void parseActivity(activityPaste)}
+            className="px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
           >
-            Add activity
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />} Add activity
           </button>
           <button
+            disabled={busy}
             onClick={() => activityFile.current?.click()}
-            className="px-3 py-1.5 rounded border text-sm inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded border text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             <FileUp className="h-4 w-4" /> Choose CSV file
           </button>
@@ -155,7 +167,7 @@ export default function UploadPage() {
             onChange={(e) =>
               readFile(e.target.files?.[0], (t) => {
                 setActivityPaste(t);
-                parseActivity(t);
+                void parseActivity(t);
               })
             }
           />
@@ -165,21 +177,31 @@ export default function UploadPage() {
       </section>
 
       <div className="col-span-full flex flex-wrap gap-2">
-        <button onClick={loadSample} className="px-3 py-1.5 rounded border text-sm">
+        <button
+          disabled={busy}
+          onClick={() => void loadSample().catch(() => {})}
+          className="px-3 py-1.5 rounded border text-sm disabled:opacity-50"
+        >
           Load sample data
         </button>
         <button
+          disabled={busy}
           onClick={() => {
-            clearAll();
+            if (sharePoint && !confirm("This deletes every item in both SharePoint lists, for everyone. Continue?")) {
+              return;
+            }
+            void clearAll().catch(() => {});
             setRosterResult(null);
             setActivityResult(null);
           }}
-          className="px-3 py-1.5 rounded border text-destructive text-sm"
+          className="px-3 py-1.5 rounded border text-destructive text-sm disabled:opacity-50"
         >
           Clear all data
         </button>
         <p className="w-full text-xs text-muted-foreground">
-          Everything stays in this browser — nothing is sent anywhere.
+          {sharePoint
+            ? "Connected to SharePoint — uploads, edits, and deletes here change the shared lists for everyone on the site."
+            : "Everything stays in this browser — nothing is sent anywhere. Switch to SharePoint on the Storage page to share data with your team."}
         </p>
       </div>
     </div>

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local environment — holds your tenant/site config, never committed.
+.env
+.env.local
+.env.*.local
